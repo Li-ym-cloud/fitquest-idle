@@ -18,3 +18,4 @@ class PlayerStatus(BaseModel):
     current_hp: int = 100
     
     last_update: float = 0.0
+    death_count:int = 1

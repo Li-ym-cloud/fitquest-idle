@@ -1,89 +1,91 @@
-import time
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from .models.player import PlayerStatus, FitnessData
-# from .core.engine import GameEngine  # 如果逻辑移到了 main，暂时可以不引用
+import json, os, time
+from .models.player import PlayerStatus
+from .models.monster import Monster
 
-app = FastAPI(title="FitQuest Idle API")
+app = FastAPI()
 
-# 配置 CORS
+# 允许跨域
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    CORSMiddleware, 
+    allow_origins=["*"], 
+    allow_methods=["*"], 
+    allow_headers=["*"]
 )
 
-# 模拟数据库：初始化一个具有 RPG 属性的玩家
-db_player = PlayerStatus(
-    name="Hero", 
-    last_update=time.time(),
-    physical_atk=1,
-    magic_atk=1,
-    points=3
-)
+DATA_FILE = "player_data.json"
 
-@app.post("/level-up")
-async def level_up():
-    """触发升级逻辑：当经验满时，前端调用此接口"""
-    global db_player
-    
-    db_player.level += 1
-    db_player.points += 1       # 核心：升级给 1 点
-    db_player.xp = 0            # 重置当前经验
-    db_player.xp_next *= 2      # 经验需求翻倍
-    
-    print(f"玩家升级到 {db_player.level}, 获得 1 点, 下级需要 {db_player.xp_next}")
-    return db_player
+def save_db():
+    data = db_player.dict()
+    data['death_count'] = getattr(db_player, 'death_count', 0)
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+def load_db():
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                p = PlayerStatus(**data)
+                p.death_count = data.get('death_count', 0)
+                return p
+        except: pass
+    p = PlayerStatus(name="Hero", last_update=time.time())
+    p.death_count = 0
+    return p
+
+db_player = load_db()
+db_monster = Monster.create_random(db_player.level)
+
+def apply_linear_nerf(monster, death_count):
+    # 核心逻辑：死亡1次下调1%，2次下调2%
+    multiplier = max(0.5, 1.0 - (death_count * 0.01))
+    monster.max_hp = int(monster.max_hp * multiplier)
+    monster.hp = monster.max_hp
+    monster.physical_atk = max(1, int(monster.physical_atk * multiplier))
+    return monster
 
 @app.get("/game-status")
 async def get_status():
-    """前端刷新或进入页面时调用，获取当前存档"""
-    global db_player
-    return db_player
+    global db_monster
+    if db_monster.hp <= 0:
+        db_monster = apply_linear_nerf(Monster.create_random(db_player.level), db_player.death_count)
+    return {"player": db_player, "monster": db_monster, "death_count": db_player.death_count}
 
-@app.post("/sync-fitness")
-async def sync_fitness(data: dict):
-    """
-    接收健身数据：
-    1. 计算额外属性点
-    2. 返回给前端即时更新
-    """
-    global db_player
-    steps = data.get("steps", 0)
-    # 逻辑：每 5000 步给 1 个点数
-    extra_points = steps // 5000
-    
-    if extra_points > 0:
-        db_player.points += extra_points
-        return {
-            "message": f"同步成功！获得 {extra_points} 点数", 
-            "points": db_player.points,
-            "current_atk": db_player.physical_atk # 保持兼容性
-        }
-    return {"message": "步数不足，继续努力！", "points": db_player.points}
+@app.post("/respawn")
+async def respawn():
+    global db_player, db_monster
+    db_player.death_count += 1
+    db_player.current_hp = db_player.max_hp
+    db_monster = apply_linear_nerf(Monster.create_random(db_player.level), db_player.death_count)
+    save_db()
+    return {"player": db_player, "monster": db_monster}
+
+@app.post("/level-up")
+async def level_up():
+    db_player.level += 1
+    db_player.points += 1
+    db_player.xp = 0
+    db_player.xp_next = int(db_player.xp_next * 1.6)
+    global db_monster
+    db_monster = apply_linear_nerf(Monster.create_random(db_player.level), db_player.death_count)
+    save_db()
+    return {"player": db_player, "monster": db_monster}
 
 @app.post("/upgrade")
-async def upgrade_stat(stat_type: str):
-    """加点接口：由前端点击 +1 按钮触发"""
-    global db_player
-    if db_player.points <= 0:
-        raise HTTPException(status_code=400, detail="没有足够的属性点")
-    
-    if stat_type == "physical":
-        db_player.physical_atk += 1
-    elif stat_type == "magic":
-        db_player.magic_atk += 1
-    elif stat_type == "hp":
-        db_player.max_hp += 50
+async def upgrade(stat_type: str):
+    if db_player.points <= 0: raise HTTPException(400, "点数不足")
+    if stat_type == "physical": db_player.physical_atk += 1
+    elif stat_type == "magic": db_player.magic_atk += 1
+    elif stat_type == "hp": 
+        db_player.max_hp += 20
         db_player.current_hp = db_player.max_hp
-    else:
-        raise HTTPException(status_code=400, detail="未知属性类型")
-    
     db_player.points -= 1
-    return db_player  # 返回修改后的完整玩家对象，方便前端直接覆盖状态
+    save_db()
+    return db_player
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
+    # 启动 8000 端口
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+
+# Node (Frontend)
+node_modules/
+dist/
+
+# 系统与环境
+.env
+.DS_Store

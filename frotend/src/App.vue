@@ -54,39 +54,32 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { gameState, actions } from './store/game';
-import axios from 'axios';
 import StatPanel from './components/StatPanel.vue';
 import BattleArena from './components/BattleArena.vue';
 import SyncModal from './components/SyncModal.vue';
 
 const showModal = ref(false);
 
-// 自动打怪逻辑
-// 核心战斗循环：修复自动打怪
+// 核心战斗循环
 function startBattleLoop() {
-  console.log("战斗系统：尝试启动...");
+  console.log("战斗系统：启动循环...");
   
   const timer = setInterval(async () => {
-    // 调试日志：如果没攻击，可以在控制台看这里输出了什么
-    // console.log("当前敌人状态:", gameState.enemy.name, "HP:", gameState.enemy.hp);
-
-    // 判定条件：
-    // 1. 玩家不能是死亡状态
-    // 2. 怪物必须有名字且血量大于 0
+    // 判定条件：玩家未死、敌人存在且有血量
     if (gameState.isDead) return;
-    if (!gameState.enemy || !gameState.enemy.name || gameState.enemy.name === "寻找中..." || gameState.enemy.hp <= 0) {
+    if (!gameState.enemy || gameState.enemy.hp <= 0 || gameState.enemy.name === "寻找中...") {
       return;
     }
 
     // --- 开始攻击逻辑 ---
     gameState.isAttacking = true;
 
-    // 1. 玩家对怪物造成伤害
+    // 1. 玩家攻击怪物
     const pDmg = gameState.player.physical_atk + gameState.player.magic_atk;
     gameState.enemy.hp -= pDmg;
     actions.addLog(`⚔️ 你发动攻击，造成了 ${pDmg} 点伤害`, 'info');
 
-    // 2. 怪物反击 (延迟 400ms 增加打击感)
+    // 2. 怪物反击 (延迟 400ms)
     setTimeout(() => {
       gameState.isAttacking = false;
       if (gameState.enemy.hp > 0 && !gameState.isDead) {
@@ -100,52 +93,41 @@ function startBattleLoop() {
       }
     }, 400);
 
-    // 3. 检查怪物是否死亡
+    // 3. 检查怪物死亡 (关键修复：调用 actions 中的统一结算方法)
     if (gameState.enemy.hp <= 0) {
-      await handleMonsterDefeat();
+      gameState.enemy.hp = 0; // 视觉归零
+      await actions.handleMonsterDefeat(); 
     }
-  }, 1600); // 1.6秒为一个回合
+  }, 1600); 
 }
 
-onMounted(async () => {
-  // 关键：必须先 await 拿到数据，否则 startBattleLoop 进去时 hp 还是 0
-  await actions.fetchStatus(); 
-  startBattleLoop();
-});
+// 统一死亡处理
+async function triggerDeath() {
+  if (gameState.isDead) return;
+  gameState.isDead = true;
+  gameState.player.current_hp = 0;
+  
+  actions.addLog(`❌ 战败！正在复活...`, "system");
 
-async function handleMonsterDefeat() {
-  actions.addLog(`胜利！击败了 [${gameState.enemy.name}]`, 'success');
-  // 这里可以发请求给后端增加经验，或者前端先加
-  gameState.player.xp += 2; 
-  if (gameState.player.xp >= gameState.player.xp_next) {
-    const res = await axios.post('/level-up');
-    gameState.player = res.data.player;
-    gameState.enemy = res.data.monster;
-    actions.addLog(`🌟 等级提升至 LV.${gameState.player.level}`, 'level-up');
-  } else {
-    // 刷一只新怪
-    const res = await axios.get('/game-status');
-    gameState.enemy = res.data.monster;
+  try {
+    // 这里的请求会返回包含正确 xp 的 player 对象
+    const res = await axios.post('/respawn'); 
+    // 延迟 5 秒展示死亡状态
+    setTimeout(() => {
+      gameState.player = res.data.player;
+      gameState.enemy = res.data.monster;
+      gameState.isDead = false;
+      actions.addLog(`🛡️ 复活成功，经验已同步。`, 'success');
+    }, 5000);
+  } catch (e) {
+    console.error("复活请求失败:", e);
   }
 }
 
-async function triggerDeath() {
-  gameState.isDead = true;
-  gameState.player.current_hp = 0;
-  actions.addLog(`❌ 战败！累计死亡 ${gameState.player.death_count + 1} 次，削弱怪物属性...`, "system");
-
-  setTimeout(async () => {
-    const res = await axios.post('/respawn');
-    gameState.player = res.data.player;
-    gameState.enemy = res.data.monster;
-    gameState.isDead = false;
-    actions.addLog(`🛡️ 复活成功，继续战斗。`, 'success');
-  }, 5000); // 5秒后复活
-}
-
-onMounted(() => {
-  actions.fetchStatus();
-  startBattleLoop();
+// 只保留一个 onMounted
+onMounted(async () => {
+  await actions.fetchStatus(); // 先初始化数据
+  startBattleLoop(); // 再启动战斗
 });
 </script>
 

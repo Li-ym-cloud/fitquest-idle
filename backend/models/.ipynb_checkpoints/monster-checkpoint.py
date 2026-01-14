@@ -26,9 +26,9 @@ class Monster(BaseModel):
         # 2. 判定稀有度 (0-1 随机数)
         rarity_roll = random.random()
         
-        if rarity_roll > 0.9:
+        if rarity_roll > 0.7:
             # --- 强力怪 (10% 概率) ---
-            multiplier = random.uniform(1.2, 1.6) # 1.2倍到1.6倍强度
+            multiplier = random.uniform(1.2, 3.6) # 1.2倍到1.6倍强度
             name_prefix = random.choice(prefixes_strong)
             # 精英怪可能会有额外的魔法伤害加成
             m_atk = int(atk_base * 0.5) 

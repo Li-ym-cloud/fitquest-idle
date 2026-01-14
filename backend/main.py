@@ -3,6 +3,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from .models.monster import Monster
 from .database import init_db, load_player, save_player
+from pydantic import BaseModel
+
+class SyncData(BaseModel):
+    steps: int
 
 # --- 1. 日志配置 ---
 logging.basicConfig(
@@ -26,6 +30,18 @@ db_player = load_player()
 db_monster = Monster.create_random(db_player.level)
 
 logger.info(f"游戏服务启动。玩家: {db_player.name}, 当前等级: {db_player.level}, XP: {db_player.xp}")
+
+@app.post("/sync-steps")
+async def sync_steps(data: SyncData):
+    global db_player
+    # 设定奖励逻辑：例如每 2000 步奖励 1 个属性点
+    reward = data.steps // 2000
+    if reward > 0:
+        db_player.points += reward
+        save_player(db_player)
+    
+    logger.info(f"同步成功: 步数 {data.steps}, 奖励点数 {reward}")
+    return {"message": "Success", "reward": reward, "current_points": db_player.points}
 
 # --- 3. 辅助函数 ---
 def apply_dynamic_nerf(monster, death_count, player_level):
@@ -52,13 +68,13 @@ async def get_status():
 @app.post("/add-xp")
 async def add_xp(amount: int = 2):
     global db_player
-    logger.info(f"[XP增加前] 内存XP: {db_player.xp}")
+    logger.info(f"[XP增加前] 经验XP: {db_player.xp}")
     
     db_player.xp += amount
     db_player.current_hp = db_player.max_hp # 击杀回血
     
     save_player(db_player) # 写入数据库
-    logger.info(f"[XP增加后] 内存XP: {db_player.xp} (已同步数据库)")
+    logger.info(f"[XP增加后] 经验XP: {db_player.xp} (已同步数据库)")
     
     return db_player
 
@@ -116,7 +132,7 @@ async def upgrade(stat_type: str):
 async def respawn():
     global db_player, db_monster
     # 追踪 XP 是否在这里丢失
-    logger.info(f"[复活开始] 接口被触发。当前内存 XP: {db_player.xp}, 死亡次数: {db_player.death_count}")
+    logger.info(f"[复活开始] 接口被触发。当前经验 XP: {db_player.xp}, 死亡次数: {db_player.death_count}")
     
     db_player.death_count += 1
     db_player.current_hp = db_player.max_hp

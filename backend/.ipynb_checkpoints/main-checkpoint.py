@@ -39,12 +39,14 @@ def apply_dynamic_nerf(monster, death_count, player_level):
 @app.get("/game-status")
 async def get_status():
     global db_monster,db_player
-    if db_monster.hp <= 0:
-        db_monster = apply_dynamic_nerf(
+    logger.info(f"[刷新怪物] 等级LV: {db_player.level}")
+    # if db_monster.hp <= 0:
+    db_monster = apply_dynamic_nerf(
             Monster.create_random(db_player.level), 
             db_player.death_count, 
             db_player.level
         )
+    db_player.current_hp = db_player.max_hp
     return {"player": db_player, "monster": db_monster}
 
 @app.post("/add-xp")
@@ -60,6 +62,38 @@ async def add_xp(amount: int = 2):
     
     return db_player
 
+# --- 4. 路由接口 ---
+
+@app.post("/reset")
+async def reset_game():
+    """彻底重置游戏进度"""
+    global db_player, db_monster
+    try:
+        logger.info("正在执行全服重置...")
+        
+        # 1. 构造初始数据对象 (与 init_db 中的初始值保持一致)
+        db_player.level = 1
+        db_player.xp = 0
+        db_player.xp_next = 10
+        db_player.points = 5
+        db_player.physical_atk = 5
+        db_player.magic_atk = 2
+        db_player.max_hp = 100
+        db_player.current_hp = 100
+        db_player.death_count = 0
+        
+        # 2. 物理写入数据库
+        save_player(db_player)
+        
+        # 3. 重新生成 1 级的怪物
+        db_monster = Monster.create_random(db_player.level)
+        
+        logger.info("重置成功，英雄已重新开始。")
+        return {"message": "Reset Successful", "player": db_player, "monster": db_monster}
+    except Exception as e:
+        logger.error(f"重置失败: {e}")
+        raise HTTPException(status_code=500, detail="Reset Failed")
+
 @app.post("/upgrade")
 async def upgrade(stat_type: str):
     global db_player
@@ -72,7 +106,7 @@ async def upgrade(stat_type: str):
         db_player.magic_atk += 1
     elif stat_type == "hp":
         db_player.max_hp += 20
-        db_player.current_hp = db_player.max_hp
+        db_player.current_hp += 20
     
     db_player.points -= 1
     save_player(db_player) # 写入 SQLite
@@ -109,7 +143,7 @@ async def level_up():
     db_player.xp = 0 # 只有这里会重置 XP
     db_player.xp_next = int(db_player.xp_next * 1.6)
     db_player.death_count = 0 
-    db_player.points += 1
+    db_player.points += 3
     db_player.current_hp = db_player.max_hp
     
     save_player(db_player)
@@ -117,22 +151,6 @@ async def level_up():
     
     monster = Monster.create_random(db_player.level)
     return {"player": db_player, "monster": monster}
-
-@app.post("/upgrade")
-async def upgrade(stat_type: str):
-    if db_player.points <= 0:
-        raise HTTPException(status_code=400, detail="点数不足")
-    
-    if stat_type == "physical": db_player.physical_atk += 1
-    elif stat_type == "magic": db_player.magic_atk += 1
-    elif stat_type == "hp": 
-        db_player.max_hp += 20
-        db_player.current_hp = db_player.max_hp
-    
-    db_player.points -= 1
-    save_player(db_player)
-    logger.info(f"[属性提升] 类型: {stat_type}, 剩余点数: {db_player.points}")
-    return db_player
 
 if __name__ == "__main__":
     import uvicorn

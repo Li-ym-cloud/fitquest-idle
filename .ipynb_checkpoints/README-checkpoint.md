@@ -41,3 +41,5 @@ $$Character\_Power = (Steps \times 0.01) + (Punch\_Count \times 0.5)$$
 ```bash
 git clone [https://github.com/your-username/fitquest-idle.git](https://github.com/your-username/fitquest-idle.git)
 cd fitquest-idle
+```
+![结果展示](./Snipaste_2026-01-13_18-56-25.png)

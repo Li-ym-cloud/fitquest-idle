@@ -29,6 +29,8 @@
             {{ Math.max(0, gameState.player.current_hp) }} / {{ gameState.player.max_hp }}
           </span>
         </div>
+        <button v-if="gameState.player.points > 0" @click="actions.addPoint('hp')" 
+                  class="w-7 h-7 bg-indigo-600 hover:bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold transition-all active:scale-90 shadow-lg">+ </button>
         <div class="h-3 bg-slate-900 rounded-full border border-slate-800 p-0.5">
           <div class="h-full bg-gradient-to-r from-red-600 to-orange-500 rounded-full transition-all duration-500 shadow-[0_0_10px_rgba(239,68,68,0.3)]"
                :style="{ width: (gameState.player.current_hp / gameState.player.max_hp * 100) + '%' }">

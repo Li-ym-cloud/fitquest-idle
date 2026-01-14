@@ -24,7 +24,7 @@ def init_db():
     if cursor.fetchone()[0] == 0:
         cursor.execute('''
             INSERT INTO player (id, name, level, xp, xp_next, points, physical_atk, magic_atk, max_hp, current_hp, death_count)
-            VALUES (1, 'Hero', 1, 0, 10, 0, 5, 2, 100, 100, 0)
+            VALUES (1, 'Hero', 1, 0, 10, 5, 5, 2, 100, 100, 0)
         ''')
     conn.commit()
     conn.close()
@@ -41,6 +41,29 @@ def load_player():
         print(f"--- DB LOAD: XP={data['xp']}, Level={data['level']} ---")
         return PlayerStatus(**data)
     return PlayerStatus()
+
+def reset_player_db():
+    """将数据库中的玩家数据物理重置为初始状态"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # 使用 init_db 中定义的初始数值
+        cursor.execute('''
+            UPDATE player SET 
+            level=1, xp=0, xp_next=10, points=0, 
+            physical_atk=5, magic_atk=2, max_hp=100, 
+            current_hp=100, death_count=0
+            WHERE id = 1
+        ''')
+        conn.commit()
+        print("[数据库日志] 角色数据已成功物理重置")
+    except Exception as e:
+        print(f"[数据库日志] 重置失败: {e}")
+    finally:
+        conn.close()
+    
+    # 重新加载并返回初始化的模型对象
+    return load_player()
 
 def save_player(p: PlayerStatus):
     print(f"[数据库日志] 正在写入 SQLite. XP 目标值: {p.xp}")
